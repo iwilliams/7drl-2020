@@ -1,0 +1,15 @@
+[gd_scene load_steps=3 format=2]
+
+[ext_resource path="res://Tiles/Tile.tres" type="Material" id=1]
+[ext_resource path="res://Tiles/Tile.gd" type="Script" id=3]
+
+[node name="Node2D" type="ColorRect"]
+material = ExtResource( 1 )
+margin_right = 32.0
+margin_bottom = 32.0
+color = Color( 0, 0, 0, 1 )
+script = ExtResource( 3 )
+__meta__ = {
+"_edit_use_anchors_": false
+}
+type = 1

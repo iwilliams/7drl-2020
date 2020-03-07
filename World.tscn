@@ -1,0 +1,38 @@
+[gd_scene load_steps=7 format=2]
+
+[ext_resource path="res://Tiles/Tile.tscn" type="PackedScene" id=1]
+[ext_resource path="res://World.gd" type="Script" id=2]
+[ext_resource path="res://Camera2D.gd" type="Script" id=3]
+[ext_resource path="res://font_sprite.png" type="Texture" id=4]
+[ext_resource path="res://Tiles/Tile.shader" type="Shader" id=5]
+
+[sub_resource type="ShaderMaterial" id=1]
+shader = ExtResource( 5 )
+shader_param/tile = Vector2( 11, 2 )
+shader_param/fg_color = Color( 1, 1, 1, 1 )
+shader_param/bg_color = Color( 0, 0, 0, 0 )
+shader_param/brightness = 1.0
+shader_param/tex = ExtResource( 4 )
+
+[node name="World" type="Node2D"]
+script = ExtResource( 2 )
+
+[node name="Camera2D" type="Camera2D" parent="."]
+offset = Vector2( 16, 16 )
+current = true
+zoom = Vector2( 2, 2 )
+script = ExtResource( 3 )
+
+[node name="Tiles" type="Node2D" parent="."]
+
+[node name="Entities" type="Node2D" parent="."]
+
+[node name="Player" type="Node2D" parent="Entities"]
+
+[node name="Node2D" parent="Entities/Player" instance=ExtResource( 1 )]
+material = SubResource( 1 )
+type = 64
+
+[node name="TurnClock" type="Timer" parent="."]
+wait_time = 0.2
+autostart = true
