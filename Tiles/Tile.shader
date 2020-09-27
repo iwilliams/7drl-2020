@@ -9,7 +9,7 @@ uniform vec4 bg_color = vec4(0, 0, 0, 1);
 uniform float brightness = 1.0;
 
 void fragment(){
-  vec2 UV2 = UV * (vec2(32, 32) / vec2(textureSize(tex, 0))) - ((tile * vec2(-32, -32)) / vec2(textureSize(tex, 0)));
+  vec2 UV2 = UV * (vec2(16, 16) / vec2(textureSize(tex, 0))) - ((tile * vec2(-16, -16)) / vec2(textureSize(tex, 0)));
   vec4 newColor = texture(tex, UV2);
   COLOR = newColor;
   float letterA = COLOR.a;

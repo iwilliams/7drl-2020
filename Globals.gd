@@ -7,5 +7,6 @@ enum TileTypes {
   DOOR = 8,
   STAIRS_DOWN = 16,
   STAIRS_UP = 32,
-  PLAYER = 64
+  PLAYER = 64,
+  RAT = 128
 }

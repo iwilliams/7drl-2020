@@ -16,6 +16,12 @@ func position_get():
   
 var discovered := false
 var can_see := false
+var brightness := 1.0 setget brightness_set
+func brightness_set(value : float) -> void:
+  brightness = value
+  if material:
+    material.set_shader_param("brightness", value)
+  
 
 var tile_styles := {
   Globals.TileTypes.NOTHING : {
@@ -24,32 +30,37 @@ var tile_styles := {
     "bg_color": default_bg
   },
   Globals.TileTypes.FLOOR: {
-    "sprite_position": Vector2(11, 3), # .
+    "sprite_position": Vector2(2, 18), # .
     "fg_color": Color("#625565"),
     "bg_color": default_bg
   },
   Globals.TileTypes.WALL: {
-    "sprite_position": Vector2(12, 2), # #
+    "sprite_position": Vector2(3, 0), # #
     "fg_color": Color("#313638"),
     "bg_color": Color("#b2ba90")
   },
   Globals.TileTypes.DOOR: {
-    "sprite_position": Vector2(22, 2), # +
+    "sprite_position": Vector2(11, 0), # +
     "fg_color": Color("#cd683d"),
     "bg_color": Color("#9e4539")
   },
   Globals.TileTypes.STAIRS_DOWN: {
-    "sprite_position": Vector2(10, 3), # >
+    "sprite_position": Vector2(30, 0), # >
     "fg_color": Color("#ffffff"),
     "bg_color": default_bg
   },
   Globals.TileTypes.STAIRS_UP: {
-    "sprite_position": Vector2(8, 3), # <
+    "sprite_position": Vector2(28, 0), # <
     "fg_color": Color("#ffffff"),
     "bg_color": default_bg
    },
    Globals.TileTypes.PLAYER: {
-    "sprite_position": Vector2(11, 2), # @
+    "sprite_position": Vector2(0, 1), # @
+    "fg_color": Color("#ffffff"),
+    "bg_color": Color(0, 0, 0, 0)
+   },
+  Globals.TileTypes.RAT: {
+    "sprite_position":  Vector2(18, 2), # @
     "fg_color": Color("#ffffff"),
     "bg_color": Color(0, 0, 0, 0)
    }
@@ -58,6 +69,12 @@ var tile_styles := {
 func _init():
   if material:
     material = material.duplicate()
+    
+func reset():
+  type_set(Globals.TileTypes.NOTHING)
+  brightness_set(1.0)
+  can_see = false
+  discovered = false
 
 func set_tile_attributes():
   if !material:

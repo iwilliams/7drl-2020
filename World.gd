@@ -12,40 +12,135 @@ const max_world_width : int = 100
 const max_world_height : int = 100
 const min_world_width : int = 3
 const min_world_height : int = 3
+const world_bounds := Rect2(0, 0, 0, 0)
 var is_generating = false
 
-onready var astar := AStar.new()
+onready var astar := AStar2D.new()
 onready var tiles := get_node("Tiles")
+onready var Entities := get_node("Entities")
 onready var player := get_node("Entities/Player")
 onready var camera := get_node("Camera2D")
 var player_path : Array
 onready var turn_clock := get_node("TurnClock")
 
+var tile_cache = {}
+
+static func merge_dir(target : Dictionary, patch : Dictionary) -> Dictionary:
+    var copy := target.duplicate()
+    for key in patch:
+        copy[key] = patch[key]
+    return copy
+
 func _ready():
   create_dungeon(Vector2(100, 100))
-  calculate_fov()
-#  turn_clock.connect("timeout", self, "turn")
 
-var walk_time = 0
+var turn_time = .15
+var turn_tick = 0
 
 func _physics_process(delta):
-  if !walk_time:
-    walk_time = 0
-  walk_time += delta
-  if walk_time < .1:
+  var player_direction = null
+  if Input.is_action_just_pressed("ui_up"):
+    player_direction = Vector2(0, -1)
+  elif Input.is_action_just_pressed("ui_right"):
+    player_direction = Vector2(1, 0)
+  elif Input.is_action_just_pressed("ui_down"):
+    player_direction = Vector2(0, 1)
+  elif Input.is_action_just_pressed("ui_left"):
+    player_direction = Vector2(-1, 0)
+    
+  if player_direction != null:
+    player_path.clear()
+    turn(player_direction)
     return
-  walk_time = 0
-  if player_path.size() > 0:
-    var target_tile_position = player_path.pop_front()
-    var player_tile_position = get_tile_position(player.position)
-    if Vector2(target_tile_position.x, target_tile_position.y) == player_tile_position:
-      target_tile_position = player_path.pop_front()
-    if !target_tile_position:
-      return
-    var direction = player_tile_position - Vector2(target_tile_position.x, target_tile_position.y)
-    var did_move = move_player(direction*-1)
-    if !did_move:
-      player_path.push_front(target_tile_position)
+    
+  turn_tick += delta
+  if turn_tick >= turn_time:
+    if player_path.size() > 0:
+      var target_tile_position = player_path.pop_front()
+      var player_tile_position = get_tile_position(player.position)
+      if Vector2(target_tile_position.x, target_tile_position.y) == player_tile_position:
+        target_tile_position = player_path.pop_front()
+      if !target_tile_position:
+        return
+      var direction = player_tile_position - Vector2(target_tile_position.x, target_tile_position.y)
+      turn(direction*-1)
+      player_tile_position = get_tile_position(player.position)
+      if target_tile_position != player_tile_position:
+        player_path.push_front(target_tile_position)
+    else:
+      player_direction = null
+      if Input.is_action_pressed("ui_up"):
+        player_direction = Vector2(0, -1)
+      elif Input.is_action_pressed("ui_right"):
+        player_direction = Vector2(1, 0)
+      elif Input.is_action_pressed("ui_down"):
+        player_direction = Vector2(0, 1)
+      elif Input.is_action_pressed("ui_left"):
+        player_direction = Vector2(-1, 0)
+        
+      if player_direction != null:
+        player_path.clear()
+        turn(player_direction)
+        return
+    
+func turn(player_action : Vector2) -> void:
+  move_player(player_action)
+  
+    
+  var enemy_fovs := {}
+  for enemy in Entities.get_children():
+    if enemy == player:
+      continue
+    var enemy_tile_position = get_tile_position(enemy.position)
+    var fov = get_tiles_in_fov(enemy_tile_position, 2)
+    var can_see_player = false
+    for map in fov.values():
+      if map["entity"] == player:
+        can_see_player = true
+        
+    for other_enemy in Entities.get_children():
+      if other_enemy == player || other_enemy == enemy:
+        continue
+      var tile_position = get_tile_position(other_enemy.position)
+      var tile_index = tile_position.y * world_width + tile_position.x
+      astar.set_point_disabled(tile_index)
+        
+    if can_see_player:
+      var path := astar.get_point_path(get_tile(enemy_tile_position).get_index(), get_tile(get_tile_position(player.position)).get_index())
+      if path.size() <= 2:
+        print("attack")
+      else:
+        var target_tile_position = path[1]
+        enemy.position = get_tile(target_tile_position).position
+    else:     
+      var adjacent_tiles := get_adjacent_tiles(get_tile_position(enemy.position)).values()
+      var possible_tiles = []
+      for tile in adjacent_tiles:
+        if tile == null || tile.type != Globals.TileTypes.FLOOR:
+          continue
+        possible_tiles.push_front(tile)
+      if possible_tiles.size() > 0:
+        possible_tiles.shuffle()
+        var target_tile = possible_tiles.pop_front()
+        if target_tile != null && target_tile.type == Globals.TileTypes.FLOOR:
+          enemy.position = target_tile.position
+      
+    for other_enemy in Entities.get_children():
+      if other_enemy == player || other_enemy == enemy:
+        continue
+      var tile_position = get_tile_position(other_enemy.position)
+      var tile_index = tile_position.y * world_width + tile_position.x
+      astar.set_point_disabled(tile_index, false)
+        
+    enemy_fovs = merge_dir(fov, enemy_fovs)
+
+  
+  calculate_fov()
+#
+#  for map in enemy_fovs.values():
+#    map["tile"].material.set_shader_param("brightness", .5)
+  
+  turn_tick = 0
 
 # https://github.com/godotengine/godot/issues/32222#issuecomment-541929475
 func get_global_mouse_position() -> Vector2:
@@ -55,15 +150,7 @@ func get_global_mouse_position() -> Vector2:
   return offset_position
 
 func _input(event : InputEvent) -> void:
-  if event.is_action_pressed("ui_up"):
-    move_player(Vector2(0, -1))
-  elif event.is_action_pressed("ui_right"):
-    move_player(Vector2(1, 0))
-  elif event.is_action_pressed("ui_down"):
-    move_player(Vector2(0, 1))
-  elif event.is_action_pressed("ui_left"):
-    move_player(Vector2(-1, 0))
-  elif event is InputEventMouseButton:
+  if event is InputEventMouseButton:
     if event.pressed:
       var mouseEvent : InputEventMouseButton = (event as InputEventMouseButton)
       var world_position : Vector2 = get_global_mouse_position()
@@ -100,11 +187,17 @@ func move_player(direction : Vector2) -> bool:
       return false
     Globals.TileTypes.DOOR:
       next_tile.type = Globals.TileTypes.FLOOR
-      calculate_fov()
+#      calculate_fov()
       return false
+
   player.position += direction * Vector2(tile_width, tile_height)
   camera.position = player.position
-  calculate_fov()
+#  calculate_fov()
+  
+  match next_tile.type:
+    Globals.TileTypes.STAIRS_DOWN:
+      create_dungeon(Vector2(world_width, world_height))
+  
   return true
   
 func generate_tiles() -> void:
@@ -115,30 +208,28 @@ func generate_tiles() -> void:
       n.rect_position = Vector2(x*tile_width, y*tile_height)
       n.visible = false
       tiles.add_child(n)
-  camera.position = Vector2(world_width*tile_width/2, world_height*tile_height/2)
-
+      
 func get_tile_position(world_position : Vector2) -> Vector2:
   return Vector2(floor(world_position.x/tile_width), floor(world_position.y/tile_width))
 
 func child_index_to_tile_position(index: int) -> Vector2:
-  var position := Vector2(0, 0)
-  var loop := 0
-  for y in world_height:
-    position.y = y
-    for x in world_height:
-      position.x = x
-      loop += 1
-      if loop == index:
-        break
-    if loop == index:
-      break
-  return position
+  var x = index % world_width;
+  var y = floor(index / world_width)
+  return Vector2(x, y)
 
 func get_tile(position: Vector2) -> Tile:
-  var tile_index = floor(position.x) + (floor(position.y)*world_width)
+  var tile_index := floor(position.x) + (floor(position.y)*world_width)
+  if tile_index < 0:
+    return null
+  elif tile_index > tiles.get_child_count() - 1:
+    return null
   var tile : Tile = (tiles.get_child(tile_index) as Tile)
   return tile
-  
+    
+func reset_tile_cache():
+  for cache in tile_cache.values():
+    (cache as Array).clear()
+    
 # http://www.roguebasin.com/index.php?title=Dungeon-Building_Algorithm
 func create_dungeon(dungeon_size: Vector2):
   randomize()
@@ -148,13 +239,17 @@ func create_dungeon(dungeon_size: Vector2):
   world_width = int(clamp(width, min_world_width, max_world_width))
   world_height = int(clamp(height, min_world_height, max_world_height))
   
-  # Clear out any current tiles
-  for child in tiles.get_children():
-    tiles.remove_child(child)
-    child.queue_free()
+  reset_tile_cache()
   
-  # Fill tiles node with tiles
-  generate_tiles()
+  # Clear out any current tiles
+  var old_tiles = tiles.get_children()
+  if old_tiles.size() > 0:
+    astar.clear()
+    for child in old_tiles:
+      child.reset()
+  else:
+    # Fill tiles node with tiles
+    generate_tiles()
 
   # Make first room
   var first_room_bounds := make_room(Rect2(world_width/2 - 2, world_height/2 - 2, 4, 4))
@@ -175,24 +270,6 @@ func create_dungeon(dungeon_size: Vector2):
       bottom_right.y = new_feature_bounds.end.y
 
   var used_tile_bounds = Rect2(top_left, bottom_right - top_left)
-  
-#  var used_tiles = []
-#  for y in world_height:
-#    for x in world_width:
-#      var i = x + y*world_width
-#      if used_tile_bounds.has_point(Vector2(x, y)):
-#        used_tiles.push_back(tiles.get_child(i))
-        
-#  var new_tiles = Node2D.new()
-#  for tile in used_tiles:
-#    tiles.remove_child(tile)
-#    new_tiles.add_child(tile)
-#
-#  tiles.queue_free()
-#  tiles = new_tiles
-#  add_child(new_tiles)
-#  world_width = used_tile_bounds.size.x
-#  world_height = used_tile_bounds.size.y
 
   # Add all FLOOR and DOOR tiles to A*
   astar.reserve_space(tiles.get_child_count())
@@ -201,13 +278,7 @@ func create_dungeon(dungeon_size: Vector2):
     if !(tile.type == Globals.TileTypes.FLOOR || tile.type == Globals.TileTypes.DOOR):
       continue
     var tile_position = get_tile_position(tile.position)
-    astar.add_point(tile_index, Vector3(tile_position.x, tile_position.y, 0))
-
-  var stairs_down := get_random_tile_of_type(Globals.TileTypes.FLOOR)
-  stairs_down.type = Globals.TileTypes.STAIRS_DOWN
-  
-  var stairs_up := get_random_tile_of_type(Globals.TileTypes.FLOOR)
-  stairs_up.type = Globals.TileTypes.STAIRS_UP
+    astar.add_point(tile_index, tile_position)
 
   # Connect all A* points
   for point in astar.get_points():
@@ -222,8 +293,32 @@ func create_dungeon(dungeon_size: Vector2):
       if tile_index != other_tile_index && astar.has_point(other_tile_index):
         astar.connect_points(tile_index, other_tile_index)
 
+  # Add the stairs
+  var stairs_down := get_random_tile_of_type(Globals.TileTypes.FLOOR)
+  stairs_down.type = Globals.TileTypes.STAIRS_DOWN
+  var stairs_up := get_random_tile_of_type(Globals.TileTypes.FLOOR)
+  stairs_up.type = Globals.TileTypes.STAIRS_UP
+
+  # Add enemies
+  for entity in Entities.get_children():
+    if entity == player:
+      continue
+    entity.queue_free()
+    Entities.remove_child(entity)
+  for i in range(0, 10):
+    var floor_tile = get_random_tile_of_type(Globals.TileTypes.FLOOR)
+    var rat := Node2D.new()
+    var rat_tile := tile_scene.instance()
+    rat_tile.type = Globals.TileTypes.RAT
+    rat.add_child(rat_tile)
+    rat.position = floor_tile.position
+    rat.visible = false
+    Entities.add_child(rat)
+    
+  # Setup player
   player.position = stairs_up.rect_position
   camera.position = player.position
+  calculate_fov()
 
 func make_new_feature(world_bounds : Rect2) -> Rect2:
   # Find a wall
@@ -277,6 +372,14 @@ func get_tiles_in_rect(rect: Rect2) -> Array:
       tiles_in_rect.push_back(get_tile(Vector2(x, y)))
   return tiles_in_rect
 
+func get_adjacent_tiles(position : Vector2) -> Dictionary:
+  return {
+    "n": get_tile(position - Vector2(0, -1)),
+    "e": get_tile(position + Vector2(1, 0)),
+    "s": get_tile(position + Vector2(0, 1)),
+    "w": get_tile(position + Vector2(-1, 0)) 
+  }
+
 func fill_tiles_in_rect(rect: Rect2, type: int) -> void:
   for y in range(rect.position.y, rect.position.y + rect.size.y):
     for x in range(rect.position.x, rect.position.x + rect.size.x):
@@ -304,60 +407,59 @@ func find_wall() -> Dictionary:
   var floor_tile : Tile = get_random_tile_of_type(Globals.TileTypes.FLOOR)
   var floor_tile_position := get_tile_position(floor_tile.rect_position)
 
-  var adjacent_tiles := get_tiles_in_rect(\
-    Rect2(\
-      Vector2(floor_tile_position.x - 1, floor_tile_position.y -1), \
-      Vector2(3, 3) \
-    ) \
-  )
+  var adjacent_tiles := get_adjacent_tiles(floor_tile_position)
+  var possible_wall_tiles = adjacent_tiles.values()
+  var wall_tile : Tile = null
+  while (wall_tile == null):
+    wall_tile = get_random_tile_of_type(Globals.TileTypes.WALL, possible_wall_tiles)
   
-  # 0 1 2
-  # 3 4 5
-  # 6 7 8 
-  var possible_wall_tiles = []
-  if adjacent_tiles.size() >= 2:
-    possible_wall_tiles.push_back(adjacent_tiles[1]) 
-  if adjacent_tiles.size() >= 4:
-    possible_wall_tiles.push_back(adjacent_tiles[3])
-  if adjacent_tiles.size() >= 6:
-    possible_wall_tiles.push_back(adjacent_tiles[5]) 
-  if adjacent_tiles.size() >= 8:
-    possible_wall_tiles.push_back(adjacent_tiles[7])
-  
-  var wall_tile : Tile = get_random_tile_of_type(\
-    Globals.TileTypes.WALL, \
-    possible_wall_tiles
-  )
-  
-  if wall_tile == null:
-    return find_wall()
-  else:
-    var wall_position := get_tile_position(wall_tile.rect_position)
-    var direction := wall_position - floor_tile_position
-    return {
-      "tile": wall_tile,
-      "tile_position": wall_position,
-      "direction": direction
-    }
+  var wall_position := get_tile_position(wall_tile.rect_position)
+  var direction := wall_position - floor_tile_position
+  return {
+    "tile": wall_tile,
+    "tile_position": wall_position,
+    "direction": direction
+  }
+
+func get_entity_at(position):
+  for entity in Entities.get_children():
+    if position == get_tile_position(entity.position):
+      return entity
+  return null
 
 # https://github.com/domasx2/mrpas-js/blob/master/mrpas.js
 func calculate_fov() -> void:
+  # Reset all tiles
   for tile in tiles.get_children():
     tile.can_see = false
     if tile.discovered:
       tile.material.set_shader_param("brightness", .1)
     else:
       tile.visible = false
+      
+  # Reset all entities
+  for visible_entity in Entities.get_children():
+    if visible_entity && visible_entity != player:
+      visible_entity.visible = false
+      
   var player_tile_position = get_tile_position(player.position)
   tile_set_visible(player_tile_position)
-  var vision_range = 10
-  calculate_fov_quadrant(player_tile_position, vision_range, 1, 1);
-  calculate_fov_quadrant(player_tile_position, vision_range, 1, -1);
-  calculate_fov_quadrant(player_tile_position, vision_range, -1, 1);
-  calculate_fov_quadrant(player_tile_position, vision_range, -1, -1);
-  pass
   
-func calculate_fov_quadrant(player_position : Vector2, max_radius : int, dx : int, dy : int):
+  var visibility_map = get_tiles_in_fov(player_tile_position)
+  for map in visibility_map.values():
+    tile_set_visible(map["position"])
+    var visible_entity = map["entity"]
+    if visible_entity && visible_entity != player:
+      visible_entity.visible = true
+        
+func get_tiles_in_fov(origin : Vector2, vision_range = 10) -> Dictionary:
+  var visible_tiles = calculate_fov_quadrant(origin, vision_range, {}, 1, 1);
+  visible_tiles = merge_dir(visible_tiles, calculate_fov_quadrant(origin, vision_range, visible_tiles, 1, -1));
+  visible_tiles = merge_dir(visible_tiles, calculate_fov_quadrant(origin, vision_range, visible_tiles, -1, 1));
+  visible_tiles = merge_dir(visible_tiles, calculate_fov_quadrant(origin, vision_range, visible_tiles, -1, -1));
+  return visible_tiles
+
+func calculate_fov_quadrant(player_position : Vector2, max_radius : int, visibility_map : Dictionary, dx : int, dy : int):
   var start_angle := []
   start_angle.resize(100)
   var end_angle := []
@@ -384,6 +486,9 @@ func calculate_fov_quadrant(player_position : Vector2, max_radius : int, dx : in
   var center_slope
   var end_slope
   var idx;
+  
+  var visible_tiles := []
+  
   # do while there are unblocked slopes left and the algo is within
   # the map's boundaries
   # scan progressive lines/columns from the PC outwards
@@ -405,7 +510,7 @@ func calculate_fov_quadrant(player_position : Vector2, max_radius : int, dx : in
       start_slope = processed_cell * slopes_per_cell
       center_slope = start_slope + half_slopes
       end_slope = start_slope + slopes_per_cell
-      if (obstacles_in_last_line > 0) && (!tile_is_visible(pos)):
+      if (obstacles_in_last_line > 0) && (!visibility_map.has(pos)):
         idx = 0;
         while(is_visible && (idx < obstacles_in_last_line)):
           if tile_is_transparent(pos):
@@ -414,17 +519,23 @@ func calculate_fov_quadrant(player_position : Vector2, max_radius : int, dx : in
           elif ((start_slope >= start_angle[idx]) && (end_slope <= end_angle[idx])):
             is_visible = false;
 
-          if (is_visible && ( (!tile_is_visible(Vector2(x, y - dy))) || \
+          if (is_visible && ( (!visibility_map.has(Vector2(x, y - dy))) || \
             (!tile_is_transparent(Vector2(x, y - dy)))) \
             && ((x - dx >= 0) && (x - dx < wsize.x) && \
-            ((!tile_is_visible(Vector2(x - dx, y - dy))) \
+            ((!visibility_map.has(Vector2(x - dx, y - dy))) \
             || (!tile_is_transparent(Vector2(x - dx, y - dy)))))):
             is_visible = false;
           idx += 1;
               
       if is_visible:
-        tile_set_visible(pos)
+        visibility_map[pos] = {
+          "position": pos,
+          "tile": get_tile(pos),
+          "entity": get_entity_at(pos)
+        }
+        
         done = false
+        
         # if the cell is opaque, block the adjacent slopes
         if !tile_is_transparent(pos):
           if min_angle >= start_slope:
@@ -476,7 +587,7 @@ func calculate_fov_quadrant(player_position : Vector2, max_radius : int, dx : in
       start_slope = processed_cell * slopes_per_cell
       center_slope = start_slope + half_slopes
       end_slope = start_slope + slopes_per_cell
-      if (obstacles_in_last_line > 0) && (!tile_is_visible(pos)):
+      if (obstacles_in_last_line > 0) && (!visibility_map.has(pos)):
         idx = 0
         while is_visible && (idx < obstacles_in_last_line):
           if(tile_is_transparent(pos)):
@@ -485,17 +596,23 @@ func calculate_fov_quadrant(player_position : Vector2, max_radius : int, dx : in
           elif (start_slope >= start_angle[idx]) && (end_slope <= end_angle[idx]):
               is_visible = false;
                     
-          if is_visible && (!tile_is_visible(Vector2(x - dx, y)) || \
+          if is_visible && (!visibility_map.has(Vector2(x - dx, y)) || \
             (!tile_is_transparent(Vector2(x - dx, y)))) && \
             ((y - dy >= 0) && (y - dy < wsize.y) && \
-            ((!tile_is_visible(Vector2(x - dx, y - dy))) || \
+            ((!visibility_map.has(Vector2(x - dx, y - dy))) || \
             (!tile_is_transparent(Vector2(x - dx, y - dy))))):
             is_visible = false;
           idx += 1;
           
       if is_visible:
-        tile_set_visible(pos)
+        visibility_map[pos] = {
+          "position": pos,
+          "tile": get_tile(pos),
+          "entity": get_entity_at(pos)
+        }
+
         done = false
+
         # if the cell is opaque, block the adjacent slopes
         if !tile_is_transparent(pos):
           if(min_angle >= start_slope):
@@ -518,7 +635,7 @@ func calculate_fov_quadrant(player_position : Vector2, max_radius : int, dx : in
     if min_angle == 1.0:
       done = true
   
-  return
+  return visibility_map
 
 func tile_is_visible(tile_position : Vector2) -> bool:
   var tile = get_tile(tile_position)

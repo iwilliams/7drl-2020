@@ -108,6 +108,7 @@ text = "↓"
 flat = true
 
 [node name="Fps" type="Label" parent="CanvasLayer"]
+visible = false
 margin_right = 40.0
 margin_bottom = 32.0
 custom_fonts/font = SubResource( 1 )
